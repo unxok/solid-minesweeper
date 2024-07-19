@@ -4,45 +4,111 @@ import {
   Index,
   onMount,
   onCleanup,
+  Show,
+  ComponentProps,
+  For,
 } from "solid-js";
 import { DOMElement } from "solid-js/jsx-runtime";
 import { createStore, produce } from "solid-js/store";
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
+import {
+  CircleCheck,
+  CircleCheckBig,
+  CircleX,
+  Percent,
+  RotateCcw,
+  Settings,
+  Settings2,
+} from "lucide-solid";
+import { Button, buttonVariants } from "../ui/button";
+import { One } from "../Numbers/One";
+import { Two } from "../Numbers/Two";
+import { Three } from "../Numbers/Three";
+import { Four } from "../Numbers/Four";
+import { Five } from "../Numbers/Five";
+import { Six } from "../Numbers/Six";
+import { Seven } from "../Numbers/Seven";
+import { Eight } from "../Numbers/Eight";
+import { Mine } from "../Mine";
+import { Flag } from "../Flag";
+import { Slider } from "../ui/slider";
+import { Badge } from "../ui/badge";
+import {
+  generateRows,
+  scatterMines,
+  calculateNeighbors,
+  doZeroOpen,
+  initRows,
+  paddZeroes,
+} from "@/libs/util";
+import { defaultCell, difficulties } from "@/libs/constants";
+import { Cell, Difficulty } from "@/libs/types";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverTitle,
+  PopoverTrigger,
+} from "../ui/popover";
+import { cn } from "@/libs/cn";
 
-const gameWidth = 450;
-const gameHeight = 450;
+const gameWidth = "100%";
+const gameHeight = 300;
 
 let isFirstClick = true;
 
-export const Game = () => {
-  const diff = difficulties.medium;
-  const rowHeight = gameHeight / diff.rows;
-  const cellWidth = gameWidth / diff.cellsPerRow;
-  const initialRows = generateRows(diff.rows, diff.cellsPerRow, defaultCell);
-  const withMines = scatterMines(initialRows, diff.mineCount);
-  const withNeighbors = calculateNeighbors(withMines);
+export const minScale = 0;
+export const maxScale = 3;
+export const stepScale = 0.05;
+const [rows, setRows] = createStore<Cell[][]>(
+  generateRows(difficulties[0].rows, difficulties[0].cellsPerRow, defaultCell),
+);
+/**
+ * Update row store. Mutate the previous state, no need to return.
+ * @param cb Callback function to mutate the state
+ */
+const updateRows = (cb: (previous: Cell[][]) => void) => {
+  setRows(produce(cb));
+};
+export const [scale, setScale] = createSignal(1);
+const [difficulty, setDifficulty] = createSignal(0);
+const [remainingFlags, setRemainingFlags] = createSignal(0);
+const [isGameOver, setGameOver] = createSignal(false);
+const [isGameWon, setGameWon] = createSignal(false);
+let boardRef: HTMLDivElement;
+// let timerRef = 0;
+const [timerRef, setTimerRef] = createSignal(0);
 
-  const [rows, setRows] = createStore(withNeighbors);
-  const [scale, setScale] = createSignal(1);
-  //   const [transform, setTransform] = createSignal([0, 0]);
-  //   const [transform, setTransform] = createStore([0, 0]);
+export const Game = () => {
+  const diff = difficulties[difficulty()];
+  setRows(initRows(diff));
+
+  setRemainingFlags(diff.mineCount);
+
   const [translateX, setTranslateX] = createSignal(0);
   const [translateY, setTranslateY] = createSignal(0);
   let mousePosition = [0, 0];
-  //   let isMouseDown = false;
   const [isMouseDown, setMouseDown] = createSignal(false);
   const [isPanning, setPanning] = createSignal(false);
 
-  createEffect(() => {
-    console.log(translateX(), translateY());
-  });
+  const startTimer = () => {
+    setTimeElapsed(0);
+    setTimerRef(
+      window.setInterval(() => {
+        setTimeElapsed((prev) => prev + 1);
+      }, 1000),
+    );
+  };
+
+  const stopTimer = () => window.clearInterval(timerRef());
 
   const onWheel = (e: Event) => {
     const s = (e as WheelEvent).deltaY;
-    const sign = s / Math.abs(s);
+    const sign = s < 0 ? -1 : 1;
     setScale((prev) => {
-      const n = prev - sign * 0.1;
-      if (prev < 0) return 0;
-      if (prev > 3) return 3;
+      const n = Math.round((prev - sign * stepScale) * 100) / 100;
+      if (prev < minScale) return minScale;
+      if (prev > maxScale) return maxScale;
       return n;
     });
   };
@@ -55,17 +121,17 @@ export const Game = () => {
     window.removeEventListener("wheel", onWheel);
   });
 
-  /**
-   * Update row store. Mutate the previous state, no need to return.
-   * @param cb Callback function to mutate the state
-   */
-  const updateRows = (cb: (previous: Cell[][]) => void) => {
-    setRows(produce(cb));
-  };
-
-  const handleFirstClickMine = (cellIndex: number, rowIndex: number) => {
-    const newRows = generateRows(diff.rows, diff.cellsPerRow, defaultCell);
-    const withMines = scatterMines(newRows, diff.mineCount, [
+  const handleFirstClickMine = (
+    cellIndex: number,
+    rowIndex: number,
+    difficulty: Difficulty,
+  ) => {
+    const newRows = generateRows(
+      difficulty.rows,
+      difficulty.cellsPerRow,
+      defaultCell,
+    );
+    const withMines = scatterMines(newRows, difficulty.mineCount, [
       rowIndex,
       cellIndex,
     ]);
@@ -76,26 +142,56 @@ export const Game = () => {
     return;
   };
 
-  const onClick = (cell: Cell, cellIndex: number, rowIndex: number) => {
+  const onClick = (
+    cell: Cell,
+    cellIndex: number,
+    rowIndex: number,
+    difficulty: Difficulty,
+  ) => {
     if (isFirstClick && cell.isMine) {
-      handleFirstClickMine(cellIndex, rowIndex);
+      handleFirstClickMine(cellIndex, rowIndex, difficulty);
+      isFirstClick = false;
+      return;
+    }
+    if (cell.isMine) {
+      updateRows((prev) => {
+        prev.forEach((row) => {
+          row.forEach((cell) => {
+            if (cell.isMine) {
+              cell.isClicked = true;
+            }
+          });
+        });
+      });
+
+      setGameOver(true);
+      stopTimer();
+      return;
     }
     if (isFirstClick) {
+      startTimer();
       isFirstClick = false;
     }
     updateRows((prev) => doZeroOpen(prev, rowIndex, cellIndex));
   };
 
   return (
-    <div>
-      game div
-      <br />
+    <div class="flex size-full flex-col items-center justify-center gap-5 p-5">
+      <div>
+        <GameOverAlert />
+        <GameWonAlert />
+        <Toolbar />
+      </div>
       <div
-        class="overflow-hidden"
-        style={{
-          width: gameWidth + "px",
-          height: gameHeight + "px",
-        }}
+        class="flex size-full justify-center overflow-hidden"
+        style={
+          {
+            // width: gameWidth + "px",
+            // height: gameHeight + "px",
+            // scale: scale(),
+            // "transform-origin": transformOrigin(),
+          }
+        }
         onMouseDown={(e) => {
           mousePosition = [e.clientX, e.clientY];
           setMouseDown(true);
@@ -119,38 +215,66 @@ export const Game = () => {
           setPanning(false);
           e.preventDefault();
         }}
+        onMouseLeave={(e) => {
+          setMouseDown(false);
+          setPanning(false);
+          e.preventDefault();
+        }}
       >
         <div
-          class=""
+          class="flex flex-col"
+          ref={(ref) => (boardRef = ref)}
           style={{
             width: gameWidth + "px",
             height: gameHeight + "px",
             scale: scale(),
-            translate: translateX() + "px " + translateY() + "px",
+            transform:
+              "translateX(" +
+              translateX() +
+              "px)  translateY(" +
+              translateY() +
+              "px)",
           }}
         >
           <Index each={rows}>
             {(row, rowIndex) => (
               <div
-                class=""
-                style={{ width: gameWidth + "px", height: rowHeight + "px" }}
+                class="flex"
+                style={{
+                  width: gameHeight + "px",
+                  height:
+                    gameHeight / difficulties[difficulty()].cellsPerRow + "px",
+                }}
               >
                 <Index each={row()}>
                   {(cell, cellIndex) => (
                     <span
-                      class={`inline-flex select-none items-center justify-center border-[.5px] transition-colors hover:bg-accent ${cell().isMine && cell().isClicked ? "bg-destructive" : cell().isClicked ? "bg-secondary" : "bg-background"}`}
+                      class={`inline-flex select-none items-center justify-center border-[.5px] transition-colors hover:bg-muted-foreground ${getCellBg(cell())}`}
                       style={{
-                        width: cellWidth + "px",
-                        height: rowHeight + "px",
+                        width:
+                          gameHeight / difficulties[difficulty()].cellsPerRow +
+                          "px",
+                        height:
+                          gameHeight / difficulties[difficulty()].cellsPerRow +
+                          "px",
                         "font-size": "80%",
                         "pointer-events": isPanning() ? "none" : "auto",
                       }}
-                      onClick={() =>
-                        !cell().isFlagged &&
-                        onClick(cell(), cellIndex, rowIndex)
-                      }
+                      onClick={() => {
+                        if (!cell().isFlagged) {
+                          onClick(
+                            cell(),
+                            cellIndex,
+                            rowIndex,
+                            difficulties[difficulty()],
+                          );
+                        }
+                      }}
                       onContextMenu={(e) => {
                         e.preventDefault();
+                        setRemainingFlags((prev) =>
+                          cell().isFlagged ? prev + 1 : prev - 1,
+                        );
                         updateRows(
                           (prev) =>
                             (prev[rowIndex][cellIndex].isFlagged =
@@ -158,17 +282,20 @@ export const Game = () => {
                         );
                       }}
                     >
-                      {cell().isClicked || true ? (
-                        cell().isFlagged ? (
-                          "#"
-                        ) : cell().isMine ? (
-                          "!"
-                        ) : (
-                          cell().neighbors || <>&nbsp;</>
-                        )
-                      ) : (
-                        <>&nbsp;</>
-                      )}
+                      <Show when={cell().isFlagged}>
+                        <Flag class="size-3/4" fill="red" />
+                      </Show>
+                      <Show when={cell().isClicked}>
+                        <Show
+                          when={cell().isMine}
+                          fallback={<NeighborsNumber num={cell().neighbors} />}
+                        >
+                          <Mine
+                            class="h-fit bg-destructive"
+                            fill="hsl(var(--background))"
+                          />
+                        </Show>
+                      </Show>
                     </span>
                   )}
                 </Index>
@@ -177,170 +304,203 @@ export const Game = () => {
           </Index>
         </div>
       </div>
+      <Slider
+        class="absolute bottom-10 right-1/2 w-3/4 translate-x-1/2"
+        minValue={minScale}
+        maxValue={maxScale}
+        step={stepScale}
+        value={[scale()]}
+        onChange={(v) => {
+          setScale(v[0]);
+        }}
+        labelText="Zoom"
+      />
     </div>
   );
 };
 
-type Difficulty = {
-  rows: number;
-  cellsPerRow: number;
-  mineCount: number;
+const GameOverAlert = () => (
+  <Show when={isGameOver()}>
+    <Alert class="border-destructive">
+      <CircleX class="size-4" color="hsl(var(--destructive))" />
+      <AlertTitle>Game over :(</AlertTitle>
+      <AlertDescription>skill issue smh...</AlertDescription>
+    </Alert>
+  </Show>
+);
+
+const GameWonAlert = () => (
+  <Show when={isGameWon()}>
+    <Alert class="">
+      <CircleCheckBig class="size-4" color="hsl(var(--foreground))" />
+      <AlertTitle>You win :D</AlertTitle>
+      <AlertDescription>
+        You deserve a cookie! Click{" "}
+        <a
+          href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+          class="text-foreground underline underline-offset-2"
+        >
+          this
+        </a>{" "}
+        to collect it ;)
+      </AlertDescription>
+    </Alert>
+  </Show>
+);
+
+const [timeElapsed, setTimeElapsed] = createSignal(0);
+
+const Toolbar = () => {
+  return (
+    <div class="flex w-full items-center justify-center gap-3 pt-3 [&>*]:h-6">
+      <Badge variant={"outline"} class="text-muted-foreground">
+        {difficulties[difficulty()].name}
+      </Badge>
+      <Badge variant={"outline"}>
+        <Flag class="size-4" />
+        &nbsp;{remainingFlags()}
+      </Badge>
+      <Badge
+        variant={"outline"}
+        class="flex w-16 justify-center text-muted-foreground"
+      >
+        <Show
+          when={timeElapsed() > 999999}
+          fallback={paddZeroes(timeElapsed(), 6)}
+        >
+          999999
+        </Show>
+      </Badge>
+      <Button
+        aria-label="restart"
+        variant={"destructive"}
+        class="py-2"
+        onClick={() => {
+          setGameOver(false);
+          setGameWon(false);
+          setTimeElapsed(0);
+          window.clearInterval(timerRef());
+          setRows(initRows(difficulties[difficulty()]));
+        }}
+      >
+        <RotateCcw size={".75rem"} />
+      </Button>
+      {/* <Button variant={"secondary"} class="py-2">
+        <Settings2 size={".75rem"} />
+      </Button> */}
+      <SettingsPopover />
+    </div>
+  );
 };
 
-const difficulties: Record<string, Difficulty> = {
-  easy: {
-    rows: 10,
-    cellsPerRow: 10,
-    mineCount: 20,
-  },
-  medium: {
-    rows: 20,
-    cellsPerRow: 20,
-    mineCount: 50,
-  },
+const SettingsPopover = () => {
+  const [isOpen, setOpen] = createSignal(true);
+  const [selected, setSelected] = createSignal(0);
+  return (
+    <Popover open={isOpen()} onOpenChange={(b) => setOpen(b)}>
+      <PopoverTrigger
+        class={cn(buttonVariants({ variant: "secondary" }), "h-6 py-2")}
+      >
+        <Settings2 size={".75rem"} />
+      </PopoverTrigger>
+      <PopoverContent class="flex flex-col gap-2">
+        <PopoverTitle>Settings</PopoverTitle>
+        <h2 class="text-sm italic">Standard mode</h2>
+        <Index each={Object.values(difficulties)}>
+          {(diff, i) => (
+            <div
+              class={`rounded-md border p-2 transition-colors hover:bg-secondary ${
+                selected() === i ? "bg-secondary" : "bg-background"
+              }`}
+              onClick={() => {
+                setSelected(i);
+              }}
+            >
+              <h3 class="text-sm font-semibold">{diff().name}</h3>
+              <ul class="flex items-center justify-start gap-1 text-xs text-muted-foreground">
+                <li>
+                  {diff().rows}&times;{diff().cellsPerRow}
+                </li>
+                <li aria-hidden>•</li>
+                <li class="flex items-center">
+                  {diff().mineCount}{" "}
+                  <Mine
+                    // TODO ugh I shouldn't have to use margin
+                    class="mt-[.1rem] size-3"
+                    fill="hsl(var(--foreground))"
+                  />
+                </li>
+                <li aria-hidden>•</li>
+                <li class="flex items-center">
+                  {(
+                    (diff().mineCount / (diff().rows * diff().cellsPerRow)) *
+                    100
+                  ).toFixed(2)}
+                  <Percent class="size-3" />
+                </li>
+              </ul>
+            </div>
+          )}
+        </Index>
+        <div class="w-full">
+          <Button
+            class="float-end"
+            onClick={() => {
+              const diff = difficulties[selected()];
+              setDifficulty(selected());
+              setRows(initRows(diff));
+              setTimeElapsed(0);
+              setOpen(false);
+            }}
+          >
+            start
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 };
 
-type Cell = {
-  isMine: boolean;
-  isFlagged: boolean;
-  isClicked: boolean;
-  neighbors: number;
-};
+const NeighborsNumber = (props: { num: number }) => (
+  <div class="flex items-center justify-center">
+    <Show when={props.num <= 0 || props.num > 8}>&nbsp;</Show>
+    <Show when={props.num === 1}>
+      <One class="size-3/4" />
+    </Show>
+    <Show when={props.num === 2}>
+      <Two class="size-3/4" />
+    </Show>
+    <Show when={props.num === 3}>
+      <Three class="size-3/4" />
+    </Show>
+    <Show when={props.num === 4}>
+      <Four class="size-3/4" />
+    </Show>
+    <Show when={props.num === 5}>
+      <Five class="size-3/4" />
+    </Show>
+    <Show when={props.num === 6}>
+      <Six class="size-3/4" />
+    </Show>
+    <Show when={props.num === 7}>
+      <Seven class="size-3/4" />
+    </Show>
+    <Show when={props.num === 8}>
+      <Eight class="size-3/4" />
+    </Show>
+  </div>
+);
 
-const defaultCell: Cell = {
-  isMine: false,
-  isFlagged: false,
-  isClicked: false,
-  neighbors: 0,
-};
-
-const generateRows = (rows: number, cellsPerRow: number, cell: Cell) => {
-  const r: Cell[][] = [];
-  for (let i = 0; i < rows; i++) {
-    r[i] = [];
-    for (let j = 0; j < cellsPerRow; j++) {
-      r[i].push({ ...cell });
-    }
+const getCellBg = (cell: Cell) => {
+  // if (cell.isFlagged) {
+  //   return "bg-secondary";
+  // }
+  if (!cell.isClicked) {
+    return "bg-background";
   }
-  return r;
-};
-
-const getRandNotInArr: (min: number, max: number, arr: number[]) => number = (
-  min,
-  max,
-  arr,
-) => {
-  const num = Math.floor(Math.random() * (max - min + 1) + min);
-  if (Array.isArray(arr) && arr.includes(num)) {
-    return getRandNotInArr(min, max, arr);
+  if (cell.isMine && cell.isClicked) {
+    return "bg-destructive";
   }
-  return num;
-};
-
-const scatterMines = (
-  rows: Cell[][],
-  mineCount: number,
-  excludeCell?: [rowIndex: number, cellIndex: number],
-) => {
-  const rowCount = rows.length;
-  const cellsPerRow = rows[0].length;
-  const copyRows = [...rows];
-  const forbidden: number[][] = [];
-  if (excludeCell) {
-    const [r, c] = excludeCell;
-    forbidden[r] = [c];
-  }
-  for (let i = 0; i < mineCount; i++) {
-    const rowIndex = getRandNotInArr(0, rowCount - 1, []);
-    const cellIndex = getRandNotInArr(0, cellsPerRow - 1, forbidden[rowIndex]);
-    copyRows[rowIndex][cellIndex].isMine = true;
-    if (forbidden[rowIndex]) {
-      forbidden[rowIndex].push(cellIndex);
-      continue;
-    }
-    forbidden[rowIndex] = [cellIndex];
-  }
-  return copyRows;
-};
-
-const calculateNeighbors = (rows: Cell[][]) => {
-  const copyRows = [...rows];
-  copyRows.forEach((row, ri) => {
-    const prevRow = rows[ri - 1] ?? [];
-    const nextRow = rows[ri + 1] ?? [];
-    row.forEach((cell, ci) => {
-      if (cell.isMine) return;
-      let neighborCount = 0;
-      const neighborCells = {
-        left: row[ci - 1],
-        right: row[ci + 1],
-        tLeft: prevRow[ci - 1],
-        tMiddle: prevRow[ci],
-        tRight: prevRow[ci + 1],
-        bLeft: nextRow[ci - 1],
-        bMiddle: nextRow[ci],
-        bRight: nextRow[ci + 1],
-      };
-
-      Object.entries(neighborCells).forEach(([_, neighbor]) => {
-        if (!neighbor) return;
-        if (!neighbor.isMine) return;
-        neighborCount += 1;
-      });
-
-      copyRows[ri][ci].neighbors = neighborCount;
-    });
-  });
-
-  return copyRows;
-};
-
-const doZeroOpen = (
-  rows: Cell[][],
-  startRowIndex: number,
-  startCellIndex: number,
-) => {
-  //   const copyRows = [...rows];
-  const copyRows = rows;
-
-  const row = copyRows[startRowIndex];
-  const cell = row[startCellIndex];
-  // because this can be recursive we need to ensure the target cell is clicked
-  cell.isClicked = true;
-  const isZero = cell.neighbors === 0;
-
-  //   const prevRow = copyRows[startRowIndex - 1];
-  //   const nextRow = copyRows[startRowIndex + 1];
-  const prevRow = startRowIndex - 1;
-  const nextRow = startRowIndex + 1;
-
-  const neighbors: Record<string, [ri: number, ci: number]> = {
-    left: [startRowIndex, startCellIndex - 1],
-    right: [startRowIndex, startCellIndex + 1],
-    tLeft: [prevRow, startCellIndex - 1],
-    tMiddle: [prevRow, startCellIndex],
-    tRight: [prevRow, startCellIndex + 1],
-    bLeft: [nextRow, startCellIndex - 1],
-    bMiddle: [nextRow, startCellIndex],
-    bRight: [nextRow, startCellIndex + 1],
-  };
-
-  Object.values(neighbors).forEach(([ri, ci]) => {
-    const r = copyRows[ri];
-    if (!r) return;
-    const c = r[ci];
-    if (!c) return;
-    if (c.isMine || c.isClicked || c.isFlagged) return;
-    if (isZero) {
-      c.isClicked = true;
-    }
-
-    if (c.neighbors === 0) {
-      doZeroOpen(copyRows, ri, ci);
-    }
-  });
-
-  //   console.log(copyRows);
-
-  return copyRows;
+  // cell is clicked
+  return "bg-secondary";
 };
