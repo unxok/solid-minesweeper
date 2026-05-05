@@ -249,7 +249,8 @@ export const Game = () => {
                 <Index each={row()}>
                   {(cell, cellIndex) => (
                     <span
-                      class={`inline-flex select-none items-center justify-center border-[.5px] transition-colors hover:bg-muted-foreground ${getCellBg(cell())}`}
+                      data-is-clicked={cell().isClicked}
+                      class={`inline-flex select-none items-center justify-center border-[.5px] transition-colors data-[is-clicked="false"]:hover:bg-muted-foreground ${getCellBg(cell())}`}
                       style={{
                         width:
                           gameHeight / difficulties[difficulty()].cellsPerRow +
