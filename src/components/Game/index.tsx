@@ -273,6 +273,10 @@ export const Game = () => {
                       }}
                       onContextMenu={(e) => {
                         e.preventDefault();
+
+                        // ignore if already clicked
+                        if (cell().isClicked) return;
+
                         setRemainingFlags((prev) =>
                           cell().isFlagged ? prev + 1 : prev - 1,
                         );
