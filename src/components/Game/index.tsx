@@ -385,6 +385,7 @@ const Toolbar = () => {
           setGameWon(false);
           setTimeElapsed(0);
           window.clearInterval(timerRef());
+          setRemainingFlags(difficulties[difficulty()].mineCount);
           setRows(initRows(difficulties[difficulty()]));
         }}
       >
@@ -453,6 +454,7 @@ const SettingsPopover = () => {
             onClick={() => {
               const diff = difficulties[selected()];
               setDifficulty(selected());
+              setRemainingFlags(difficulties[difficulty()].mineCount);
               setRows(initRows(diff));
               setTimeElapsed(0);
               setOpen(false);
