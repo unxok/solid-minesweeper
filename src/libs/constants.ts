@@ -19,15 +19,21 @@ import { Cell, Difficulty } from "./types";
 export const difficulties: Difficulty[] = [
   {
     name: "easy",
-    rows: 10,
-    cellsPerRow: 10,
-    mineCount: 20,
+    rows: 9,
+    cellsPerRow: 9,
+    mineCount: 10,
   },
   {
     name: "medium",
-    rows: 20,
-    cellsPerRow: 20,
-    mineCount: 100,
+    rows: 16,
+    cellsPerRow: 16,
+    mineCount: 40,
+  },
+  {
+    name: "hard",
+    rows: 30,
+    cellsPerRow: 16,
+    mineCount: 99,
   },
 ];
 
